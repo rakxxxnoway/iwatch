@@ -1,0 +1,195 @@
+#!/home/rntr/porn/lesbian/yt/bin/python3
+"""
+    This program is written for accessing any video from any playlist directly from your terminal window
+    Created by rakx | 2022 - ...
+
+    Version 2.0
+"""
+import configparser
+import subprocess
+import readline
+import pickle
+import yt_dlp
+import os
+
+from customs import *
+
+def open_web(url:str) -> None:
+    subprocess.Popen(
+        ["xdg-open", url],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True
+    )
+
+
+def help_():
+    rows = [
+        (watch_cmd,   "[video_id]", "Opens up a video from a playlist"),
+        (next_cmd,    "",           "Opens directly the next video in queue"),
+        (watched_cmd, "",           "Shows all videos you have allready watched, id and video title inclusive"),
+        (clear_cmd,   "",           "clears console"),
+        (help_cmd,    "",           "shows all cmds you can run"),
+        (quit_cmd,    "",           "quits program"),
+    ]
+
+    print("\nUsage: (cmd) [argument]")
+    for cmds, arg, desc in rows:
+        left = f"({', '.join(cmds)}) {arg}".rstrip()
+        print(f"\t {left:<32}- {desc}")
+    print("\n")
+
+
+# IWATCH functions
+def save(fsave:str, d:dict) -> None:
+    with open(fsave, "wb") as f:
+        pickle.dump(d, f)
+
+
+def load_file(fload:str) -> dict:
+    with open(fload, "rb") as f:
+        return pickle.load(f)
+
+
+# Main
+def main():
+    clear()
+
+    rpath = "" # leave blank if needed
+    cfile = rpath + "config.ini"
+    conf = configparser.ConfigParser()
+
+    if not conf.read(cfile):
+        logstd("!", "r", "Config file is not loaded! Terminating...")
+        return
+
+    logstd("*", "g", "Config file is loaded!")
+
+    changes = 0
+    dat_file = rpath + conf["Channel"]["file_name"].replace('"', "")
+
+    if not os.path.isfile(dat_file):
+        new_file_data = {  "t_vid": 0,  "w_ed": [],  "names": [] }
+        save(dat_file, new_file_data)
+
+
+    get_data = load_file(dat_file)
+    playlist_url = conf["Channel"]["playlist"].replace('"', "")
+
+    wtchd       = get_data["w_ed"]
+    pre_len     = get_data["t_vid"]
+    pre_names   = get_data["names"]
+
+    logstd("i", "y", "Loading videos, may take time...")
+
+    # loads whole playlist via yt-dlp
+    opts = { "extract_flat": True, "quiet": True }
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(playlist_url, download=False)
+
+    pl_title = info["title"]
+    pl_owner = info["uploader"]
+
+    temp_urls = []
+    temp_names = []
+
+    for entry in info["entries"]:
+        temp_urls.append(f"https://www.youtube.com/watch?v={entry['id']}")
+        temp_names.append(entry["title"])
+
+
+    # checks if preloaded length isn't matches with existent playlist length to syncronize video ids
+    if pre_len != len(temp_urls): 
+        new_vids = len(temp_urls) - pre_len
+        pre_len = len(temp_urls)
+        k=0
+
+        for video_id in wtchd:
+            video_id += new_vids
+            wtchd[k] = video_id
+            k+=1
+        
+        changes = 1
+
+
+    clear()
+    if changes:
+        logstd("i", "y", "Changes was made. Successfully updated list!")
+   
+    logstd("*", "g", f"Videos are loaded, total -> {pre_len}")
+    data = { "t_vid": pre_len,  "w_ed": wtchd,  "names": pre_names  }
+
+    # main loop
+    while 1:
+        try:
+            save(dat_file, data)
+            print(f"Watching > {cstr(pl_title, 'y')} by { cstr(pl_owner, 'g')} | Total: {cstr(pre_len, 'w')}")
+            cmd = input(cstr(">> ", 'g')).lower().strip().split()
+            cmd_size = len(cmd)
+
+
+            #+++++++++++++ two arguments +++++++++++++ 
+            if cmd_size == 2:
+                if cmd[0] in watch_cmd:
+                    id_ = int(cmd[1])
+
+                    if id_ < 0 or id_ >= len(temp_urls):
+                        logstd("!", "r", f"No video with id {id_}")
+                        continue
+
+                    # checks if entered video was already watched for dublicate prevention
+                    if id_ in wtchd:
+                        open_web(temp_urls[id_])
+                        continue
+
+                    pre_names.append(temp_names[id_])
+                    wtchd.append(id_)
+                    open_web(temp_urls[id_])
+
+            #+++++++++++++ one argument +++++++++++++
+            elif cmd_size == 1:
+                if cmd[0] in help_cmd:
+                    help_()
+                
+                elif cmd[0] in next_cmd:
+                    id_ = (wtchd[-1] if wtchd else len(temp_urls)) - 1
+
+                    if id_ < 0:
+                        logstd("!", "r", f"No video with id {id_}")
+                        continue
+
+                    if id_ in wtchd:
+                        open_web(temp_urls[id_])
+                        continue
+
+                    pre_names.append(temp_names[id_])
+                    wtchd.append(id_)
+                    open_web(temp_urls[id_])
+
+
+                elif cmd[0] in watched_cmd:
+                    i = 0        
+                    for video_id in wtchd:
+                        vprint(video_id, pre_names[i])
+                        i+=1
+
+                    logstd("*", "g", f"You have watched {cstr(len(wtchd), getc(len(wtchd)))}/{cstr(pre_len, getc(pre_len))}\n")
+
+
+                elif cmd[0] in clear_cmd:
+                    clear()
+
+                elif cmd[0] in quit_cmd:
+                    break
+
+
+        except Exception as e:
+            print(e)
+    else:
+        logstd("*", "g", "Goodbye!")
+
+
+if __name__ == "__main__":
+    main()
+
